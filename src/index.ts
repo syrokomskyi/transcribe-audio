@@ -36,15 +36,21 @@ async function main() {
 
         for (const file of audioFiles) {
             const inputPath = path.join(INPUT_DIR, file);
+            const outputFilename = `${path.parse(file).name}.txt`;
+            const outputPath = path.join(OUTPUT_DIR, outputFilename);
+
+            try {
+                await fs.access(outputPath);
+                console.log(`Skipping ${file} - output already exists: ${outputFilename}`);
+                continue;
+            } catch {
+                // File does not exist, proceed
+            }
+
             console.log(`Transcribing ${file}...`);
 
             try {
                 const text = await transcriber.transcribe(inputPath);
-
-                const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-                const outputFilename = `${path.parse(file).name}-${timestamp}.txt`;
-                const outputPath = path.join(OUTPUT_DIR, outputFilename);
-
                 await fs.writeFile(outputPath, text);
                 console.log(`Saved transcription to ${outputFilename}`);
             } catch (error) {
