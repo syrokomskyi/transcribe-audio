@@ -1,7 +1,7 @@
 import fs from 'fs/promises';
 import path from 'path';
 import dotenv from 'dotenv';
-import { CloudflareTranscribeService } from './transcriber.js';
+import { CloudflareTranscribeService } from './transcriber';
 
 dotenv.config();
 
@@ -9,6 +9,9 @@ const INPUT_DIR = path.resolve('input');
 const OUTPUT_DIR = path.resolve('output');
 
 async function main() {
+    // Ensure output directory exists
+    await fs.mkdir(OUTPUT_DIR, { recursive: true });
+
     const accountId = process.env.CLOUDFLARE_ACCOUNT_ID;
     const apiToken = process.env.CLOUDFLARE_API_TOKEN;
 
@@ -21,7 +24,8 @@ async function main() {
 
     try {
         const files = await fs.readdir(INPUT_DIR);
-        const audioFiles = files.filter(file => !file.startsWith('.')); // Ignore hidden files like .gitkeep
+        const audioFiles =
+            files.filter(file => file.endsWith('.mp3') || file.endsWith('.mp4') || file.endsWith('.wav'));
 
         if (audioFiles.length === 0) {
             console.log('No audio files found in input directory.');
@@ -38,7 +42,7 @@ async function main() {
                 const text = await transcriber.transcribe(inputPath);
 
                 const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-                const outputFilename = `${path.parse(file).name}_${timestamp}.txt`;
+                const outputFilename = `${path.parse(file).name}-${timestamp}.txt`;
                 const outputPath = path.join(OUTPUT_DIR, outputFilename);
 
                 await fs.writeFile(outputPath, text);
