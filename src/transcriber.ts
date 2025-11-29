@@ -145,8 +145,13 @@ export class CloudflareTranscribeService implements TranscribeService {
             for (const chunk of chunks) {
                 const chunkPath = path.join(tempDir, chunk);
                 console.log(`Transcribing chunk ${chunk}...`);
-                const text = await this.transcribeFile(chunkPath);
-                fullText += text + '\n';
+                try {
+                    const text = await this.transcribeFile(chunkPath);
+                    fullText += text + '\n';
+                } catch (error) {
+                    console.error(`Failed to transcribe chunk ${chunk}:`, error);
+                    fullText += `ERROR ${chunk}\n`;
+                }
             }
 
             return fullText.trim();
