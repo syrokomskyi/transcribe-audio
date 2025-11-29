@@ -1,7 +1,8 @@
 import fs from 'fs/promises';
 import path from 'path';
 import dotenv from 'dotenv';
-import { CloudflareTranscribeService } from './transcriber';
+import { CloudflareTranscribeService } from './services/transcribe';
+import { RegexSplitSentencesService } from './services/split-sentences';
 
 dotenv.config();
 
@@ -21,6 +22,7 @@ async function main() {
     }
 
     const transcriber = new CloudflareTranscribeService(accountId, apiToken);
+    const splitter = new RegexSplitSentencesService();
 
     try {
         const files = await fs.readdir(INPUT_DIR);
@@ -52,7 +54,7 @@ async function main() {
             }
 
             // Always split into sentences
-            const splitText = transcriber.splitIntoSentences(text);
+            const splitText = splitter.split(text);
             await fs.writeFile(outputPath, splitText);
             console.log(`Saved processed text to ${outputFilename}`);
         }
