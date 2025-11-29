@@ -1,8 +1,8 @@
-import fs from "fs/promises";
-import path from "path";
-import os from "os";
-import { exec } from "child_process";
-import { promisify } from "util";
+import { exec } from "node:child_process";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { promisify } from "node:util";
 
 const execAsync = promisify(exec);
 const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB safety limit
@@ -238,7 +238,7 @@ export class CloudflareTranscribeService implements TranscribeService {
         console.error(`Some chunks failed: ${failedResults.length}`);
         fullText +=
           "\n" +
-          failedResults.map((result, idx) => `ERROR chunk_${idx}`).join("\n");
+          failedResults.map((_result, idx) => `ERROR chunk_${idx}`).join("\n");
       }
 
       return fullText.trim();

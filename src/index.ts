@@ -1,8 +1,8 @@
-import fs from "fs/promises";
-import path from "path";
+import fs from "node:fs/promises";
+import path from "node:path";
 import dotenv from "dotenv";
-import { CloudflareTranscribeService } from "./services/transcribe";
 import { RegexSplitSentencesService } from "./services/split-sentences";
+import { CloudflareTranscribeService } from "./services/transcribe";
 
 dotenv.config();
 
