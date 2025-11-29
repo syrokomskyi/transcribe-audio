@@ -39,23 +39,22 @@ async function main() {
             const outputFilename = `${path.parse(file).name}.txt`;
             const outputPath = path.join(OUTPUT_DIR, outputFilename);
 
+            let text: string;
+
             try {
                 await fs.access(outputPath);
-                console.log(`Skipping ${file} - output already exists: ${outputFilename}`);
-                continue;
+                console.log(`Output file exists for ${file}, processing existing text: ${outputFilename}`);
+                text = await fs.readFile(outputPath, 'utf-8');
             } catch {
-                // File does not exist, proceed
+                // File does not exist, transcribe
+                console.log(`Transcribing ${file}...`);
+                text = await transcriber.transcribe(inputPath);
             }
 
-            console.log(`Transcribing ${file}...`);
-
-            try {
-                const text = await transcriber.transcribe(inputPath);
-                await fs.writeFile(outputPath, text);
-                console.log(`Saved transcription to ${outputFilename}`);
-            } catch (error) {
-                console.error(`Failed to transcribe ${file}:`, error);
-            }
+            // Always split into sentences
+            const splitText = transcriber.splitIntoSentences(text);
+            await fs.writeFile(outputPath, splitText);
+            console.log(`Saved processed text to ${outputFilename}`);
         }
     } catch (error) {
         console.error('Error processing files:', error);
