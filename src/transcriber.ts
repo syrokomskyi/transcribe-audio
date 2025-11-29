@@ -6,6 +6,7 @@ import { promisify } from 'util';
 
 const execAsync = promisify(exec);
 const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB safety limit
+const MIN_CHUNK_SIZE = 1024; // 1KB minimum chunk size to avoid empty/corrupted files
 const SILENCE_NOISE_LEVEL = -30; // dB threshold for silence detection
 const SILENCE_MIN_DURATION = 0.6; // minimum silence duration in seconds
 const MAX_CHUNK_DURATION = 120; // maximum chunk duration in seconds (2 minutes)
@@ -81,6 +82,28 @@ export class CloudflareTranscribeService implements TranscribeService {
         }
     }
 
+    private async validateChunks(tempDir: string, chunks: string[]): Promise<string[]> {
+        const validChunks: string[] = [];
+
+        for (const chunk of chunks) {
+            const chunkPath = path.join(tempDir, chunk);
+            try {
+                const stats = await fs.stat(chunkPath);
+                if (stats.size >= MIN_CHUNK_SIZE) {
+                    validChunks.push(chunk);
+                } else {
+                    console.warn(`Skipping invalid chunk ${chunk} (size: ${stats.size} bytes, minimum: ${MIN_CHUNK_SIZE} bytes)`);
+                    // Delete the invalid chunk
+                    await fs.unlink(chunkPath);
+                }
+            } catch (error) {
+                console.warn(`Failed to validate chunk ${chunk}:`, error);
+            }
+        }
+
+        return validChunks;
+    }
+
     private async splitBySilence(filePath: string, tempDir: string): Promise<string[]> {
         const silencePoints = await this.detectSilence(filePath);
 
@@ -127,7 +150,20 @@ export class CloudflareTranscribeService implements TranscribeService {
         await execAsync(segmentCmd);
 
         const files = await fs.readdir(tempDir);
-        return files.filter(f => f.startsWith('chunk_') && f.endsWith('.mp3')).sort();
+        const allChunks = files.filter(f => f.startsWith('chunk_') && f.endsWith('.mp3')).sort();
+
+        // Validate chunks to remove zero-length or corrupted files
+        const validChunks = await this.validateChunks(tempDir, allChunks);
+
+        if (validChunks.length === 0) {
+            console.warn('All chunks were invalid after splitting. Using original file as single chunk.');
+            const chunkPath = path.join(tempDir, 'chunk_000.mp3');
+            await fs.copyFile(filePath, chunkPath);
+            return ['chunk_000.mp3'];
+        }
+
+        console.log(`Validated ${validChunks.length} of ${allChunks.length} chunks`);
+        return validChunks;
     }
 
     private async transcribeLargeFile(filePath: string): Promise<string> {
