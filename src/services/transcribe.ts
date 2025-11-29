@@ -72,8 +72,9 @@ export class CloudflareTranscribeService implements TranscribeService {
       // Parse silence_end timestamps from FFmpeg output
       const silenceEndRegex = /silence_end: ([\d.]+)/g;
       const silenceEnds: number[] = [];
+      // biome-ignore lint/suspicious/noImplicitAnyLet: false positive
       let match;
-
+      // biome-ignore lint/suspicious/noAssignInExpressions: false positive
       while ((match = silenceEndRegex.exec(output)) !== null) {
         silenceEnds.push(parseFloat(match[1]));
       }
