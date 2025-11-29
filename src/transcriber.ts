@@ -177,17 +177,33 @@ export class CloudflareTranscribeService implements TranscribeService {
 
             console.log(`Split into ${chunks.length} chunks.`);
 
-            let fullText = '';
-            for (const chunk of chunks) {
+            // Transcribe all chunks in parallel
+            const transcriptionPromises = chunks.map(async (chunk, index) => {
                 const chunkPath = path.join(tempDir, chunk);
-                console.log(`Transcribing chunk ${chunk}...`);
+                console.log(`Starting transcription for chunk ${chunk}...`);
                 try {
                     const text = await this.transcribeFile(chunkPath);
-                    fullText += text + '\n';
+                    return { index, text, success: true };
                 } catch (error) {
                     console.error(`Failed to transcribe chunk ${chunk}:`, error);
-                    fullText += `ERROR ${chunk}\n`;
+                    return { index, text: `ERROR ${chunk}`, success: false };
                 }
+            });
+
+            const results = await Promise.allSettled(transcriptionPromises);
+            const successfulResults = results
+                .filter((result): result is PromiseFulfilledResult<{ index: number; text: string; success: boolean }> => 
+                    result.status === 'fulfilled' && result.value.success)
+                .map(result => result.value)
+                .sort((a, b) => a.index - b.index);
+
+            let fullText = successfulResults.map(result => result.text).join('\n');
+
+            // Handle any rejected promises (though with Promise.allSettled, all should be fulfilled)
+            const failedResults = results.filter(result => result.status === 'rejected');
+            if (failedResults.length > 0) {
+                console.error(`Some chunks failed: ${failedResults.length}`);
+                fullText += '\n' + failedResults.map((result, idx) => `ERROR chunk_${idx}`).join('\n');
             }
 
             return fullText.trim();
