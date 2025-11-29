@@ -5,7 +5,10 @@ import { exec } from 'child_process';
 import { promisify } from 'util';
 
 const execAsync = promisify(exec);
-const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB safety limit
+const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB safety limit
+const SILENCE_NOISE_LEVEL = -30; // dB threshold for silence detection
+const SILENCE_MIN_DURATION = 0.6; // minimum silence duration in seconds
+const MAX_CHUNK_DURATION = 120; // maximum chunk duration in seconds (2 minutes)
 
 export interface TranscribeService {
     transcribe(filePath: string): Promise<string>;
@@ -55,26 +58,86 @@ export class CloudflareTranscribeService implements TranscribeService {
         return result.result.text;
     }
 
+    private async detectSilence(filePath: string): Promise<number[]> {
+        try {
+            const detectCmd = `ffmpeg -i "${filePath}" -af silencedetect=noise=${SILENCE_NOISE_LEVEL}dB:d=${SILENCE_MIN_DURATION} -f null - 2>&1`;
+            const { stdout, stderr } = await execAsync(detectCmd);
+            const output = stdout + stderr;
+
+            // Parse silence_end timestamps from FFmpeg output
+            const silenceEndRegex = /silence_end: ([\d.]+)/g;
+            const silenceEnds: number[] = [];
+            let match;
+
+            while ((match = silenceEndRegex.exec(output)) !== null) {
+                silenceEnds.push(parseFloat(match[1]));
+            }
+
+            console.log(`Detected ${silenceEnds.length} silence points:`, silenceEnds.slice(0, 10).map(t => `${t.toFixed(2)}s`));
+            return silenceEnds;
+        } catch (error) {
+            console.warn('Failed to detect silence, will use fallback splitting:', error);
+            return [];
+        }
+    }
+
+    private async splitBySilence(filePath: string, tempDir: string): Promise<string[]> {
+        const silencePoints = await this.detectSilence(filePath);
+
+        if (silencePoints.length === 0) {
+            console.log('No silence detected, using single chunk');
+            // Fallback: copy entire file as single chunk
+            const chunkPath = path.join(tempDir, 'chunk_000.mp3');
+            await fs.copyFile(filePath, chunkPath);
+            return ['chunk_000.mp3'];
+        }
+
+        // Filter silence points to respect MAX_CHUNK_DURATION
+        const segmentTimes: number[] = [];
+        let lastSplit = 0;
+
+        for (const silenceEnd of silencePoints) {
+            if (silenceEnd - lastSplit >= MAX_CHUNK_DURATION) {
+                segmentTimes.push(silenceEnd);
+                lastSplit = silenceEnd;
+            }
+        }
+
+        // Add remaining silence points that create reasonable chunks
+        for (const silenceEnd of silencePoints) {
+            if (!segmentTimes.includes(silenceEnd) && silenceEnd - lastSplit >= 30) {
+                segmentTimes.push(silenceEnd);
+                lastSplit = silenceEnd;
+            }
+        }
+
+        if (segmentTimes.length === 0) {
+            console.log('No suitable split points found, using single chunk');
+            const chunkPath = path.join(tempDir, 'chunk_000.mp3');
+            await fs.copyFile(filePath, chunkPath);
+            return ['chunk_000.mp3'];
+        }
+
+        const times = segmentTimes.join(',');
+        const chunkPattern = path.join(tempDir, 'chunk_%03d.mp3');
+
+        console.log(`Splitting at ${segmentTimes.length} silence points...`);
+        // Need to encode to MP3 format, can't use -c copy from MP4/AAC to MP3 container
+        const segmentCmd = `ffmpeg -i "${filePath}" -f segment -segment_times "${times}" -c:a libmp3lame -b:a 64k "${chunkPattern}"`;
+        await execAsync(segmentCmd);
+
+        const files = await fs.readdir(tempDir);
+        return files.filter(f => f.startsWith('chunk_') && f.endsWith('.mp3')).sort();
+    }
+
     private async transcribeLargeFile(filePath: string): Promise<string> {
         const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'transcribe-'));
         console.log(`Created temp directory: ${tempDir}`);
-        const chunkPattern = path.join(tempDir, 'chunk_%03d.mp3');
 
         try {
-            // Split file into 2-minute chunks (approx 1MB for mp3 at 64kbps)
-            // -f segment: split into segments
-            // -segment_time 120: 120 seconds (2 minutes)
-            // -c:a libmp3lame: convert to mp3
-            // -b:a 64k: 64kbps bitrate (lower quality but ensures small file size)
-            const ffmpegCmd = `ffmpeg -i "${filePath}" -f segment -segment_time 120 -c:a libmp3lame -b:a 64k "${chunkPattern}"`;
-            console.log(`Running ffmpeg command...`);
-            const { stdout, stderr } = await execAsync(ffmpegCmd);
-            if (stderr) {
-                console.log(`FFmpeg output: ${stderr.substring(0, 500)}`);
-            }
-
-            const files = await fs.readdir(tempDir);
-            const chunks = files.filter(f => f.startsWith('chunk_') && f.endsWith('.mp3')).sort();
+            // Split file by silence detection for better transcription quality
+            console.log('Detecting silence points for intelligent splitting...');
+            const chunks = await this.splitBySilence(filePath, tempDir);
 
             console.log(`Split into ${chunks.length} chunks.`);
 
