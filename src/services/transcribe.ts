@@ -208,38 +208,40 @@ export class CloudflareTranscribeService implements TranscribeService {
         console.log(`Starting transcription for chunk ${chunk}...`);
         try {
           const text = await this.transcribeFile(chunkPath);
-          return { index, text, success: true };
+          return { index, chunk, text, success: true };
         } catch (error) {
           console.error(`Failed to transcribe chunk ${chunk}:`, error);
-          return { index, text: `ERROR ${chunk}`, success: false };
+          return { index, chunk, text: `ERROR ${chunk}`, success: false };
         }
       });
 
-      const results = await Promise.allSettled(transcriptionPromises);
+      const transcriptionResults = await Promise.all(transcriptionPromises);
+
+      // Sort results by index and log statistics
+      const sortedResults = transcriptionResults.sort(
+        (a, b) => a.index - b.index,
+      );
+      for (const result of sortedResults) {
+        if (result.success) {
+          const wordCount = result.text.split(/\s+/).length;
+          console.log(`Chunk ${result.chunk}: ${wordCount} words`);
+        } else {
+          console.log(`Chunk ${result.chunk}: ERROR`);
+        }
+      }
+
+      const results = transcriptionResults;
       const successfulResults = results
-        .filter(
-          (
-            result,
-          ): result is PromiseFulfilledResult<{
-            index: number;
-            text: string;
-            success: boolean;
-          }> => result.status === "fulfilled" && result.value.success,
-        )
-        .map((result) => result.value)
+        .filter((result) => result.success)
         .sort((a, b) => a.index - b.index);
 
       let fullText = successfulResults.map((result) => result.text).join("\n");
 
-      // Handle any rejected promises (though with Promise.allSettled, all should be fulfilled)
-      const failedResults = results.filter(
-        (result) => result.status === "rejected",
-      );
+      // Handle failed chunks
+      const failedResults = results.filter((result) => !result.success);
       if (failedResults.length > 0) {
         console.error(`Some chunks failed: ${failedResults.length}`);
-        fullText +=
-          "\n" +
-          failedResults.map((_result, idx) => `ERROR chunk_${idx}`).join("\n");
+        fullText += `\n${failedResults.map((result) => result.text).join("\n")}`;
       }
 
       return fullText.trim();
