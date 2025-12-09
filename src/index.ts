@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import dotenv from "dotenv";
+import { RepetitionPostProcessService } from "./services/post-process";
 import { RegexSplitSentencesService } from "./services/split-sentences";
 import { CloudflareTranscribeService } from "./services/transcribe";
 
@@ -31,6 +32,7 @@ async function main() {
     LANGUAGE,
   );
   const splitter = new RegexSplitSentencesService();
+  const postProcessor = new RepetitionPostProcessService();
 
   try {
     const dirents = await fs.readdir(INPUT_DIR, {
@@ -82,7 +84,8 @@ async function main() {
 
       // Always split into sentences
       const splitText = splitter.split(text);
-      await fs.writeFile(outputPath, splitText);
+      const processedText = postProcessor.process(splitText);
+      await fs.writeFile(outputPath, processedText);
       console.log(`Saved processed text to ${outputRelativePath}`);
     }
   } catch (error) {
