@@ -230,18 +230,13 @@ export class CloudflareTranscribeService implements TranscribeService {
         }
       }
 
-      const results = transcriptionResults;
-      const successfulResults = results
-        .filter((result) => result.success)
-        .sort((a, b) => a.index - b.index);
+      const fullText = sortedResults.map((result) => result.text).join("\n");
 
-      let fullText = successfulResults.map((result) => result.text).join("\n");
-
-      // Handle failed chunks
-      const failedResults = results.filter((result) => !result.success);
+      const failedResults = transcriptionResults.filter(
+        (result) => !result.success,
+      );
       if (failedResults.length > 0) {
         console.error(`Some chunks failed: ${failedResults.length}`);
-        fullText += `\n${failedResults.map((result) => result.text).join("\n")}`;
       }
 
       return fullText.trim();
