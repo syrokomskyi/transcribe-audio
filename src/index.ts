@@ -6,6 +6,8 @@ import { CloudflareTranscribeService } from "./services/transcribe";
 
 dotenv.config();
 
+// const LANGUAGE = "en";
+const LANGUAGE = undefined;
 const INPUT_DIR = path.resolve("input");
 const OUTPUT_DIR = path.resolve("output");
 
@@ -23,7 +25,11 @@ async function main() {
     process.exit(1);
   }
 
-  const transcriber = new CloudflareTranscribeService(accountId, apiToken);
+  const transcriber = new CloudflareTranscribeService(
+    accountId,
+    apiToken,
+    LANGUAGE,
+  );
   const splitter = new RegexSplitSentencesService();
 
   try {
